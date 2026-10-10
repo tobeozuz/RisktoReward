@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+</head>
+<body>
+<title>Risk to Reward</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a two-ledger journal — trades (gold) and bet slips (ticket stubs) — over one summary board. */
+:root{
+  --bg:#F1F3F6; --surface:#FFFFFF; --sunk:#E7EAEF; --line:#D5DAE2;
+  --fg:#18202B; --muted:#5B6575; --gold:#9A6512; --gold-soft:#F6EBD6;
+  --win:#1E7A4C; --win-soft:#DDF1E5; --loss:#B4323A; --loss-soft:#F7E0E1;
+  --pend:#5A5F9E; --pend-soft:#E4E5F5; --void:#6E7480; --void-soft:#E9EBEE;
+  --display:"Big Shoulders Display",Impact,"Arial Narrow",sans-serif;
+  --body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11151B; --surface:#1A2029; --sunk:#141920; --line:#2B3340;
+  --fg:#E7EBF1; --muted:#97A1B1; --gold:#E3AC4C; --gold-soft:#3A2E18;
+  --win:#5BCB8E; --win-soft:#173325; --loss:#F07A80; --loss-soft:#3B1C20;
+  --pend:#A7ABF0; --pend-soft:#252848; --void:#A0A6B1; --void-soft:#262B33; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11151B; --surface:#1A2029; --sunk:#141920; --line:#2B3340;
+  --fg:#E7EBF1; --muted:#97A1B1; --gold:#E3AC4C; --gold-soft:#3A2E18;
+  --win:#5BCB8E; --win-soft:#173325; --loss:#F07A80; --loss-soft:#3B1C20;
+  --pend:#A7ABF0; --pend-soft:#252848; --void:#A0A6B1; --void-soft:#262B33; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--body);padding-inline:16px;padding-block:20px 60px}
+.wrap{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+h1,h2,h3{margin:0;text-wrap:balance}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
+.brand h1{font-family:var(--display);font-weight:800;font-size:clamp(2.2rem,6vw,3.2rem);line-height:.9;letter-spacing:.01em;text-transform:uppercase}
+.brand h1 span{color:var(--gold)}
+.brand p{margin:6px 0 0;color:var(--muted);font-size:.9rem}
+.mode{display:inline-flex;align-items:center;gap:6px;font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.mode i{width:8px;height:8px;border-radius:50%;background:var(--void)}
+.mode.on i{background:var(--win)}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--surface);padding:9px 14px;border-radius:8px;font-weight:600}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.btn.gold{background:var(--gold);color:var(--surface);border-color:var(--gold)}
+.btn.small{padding:5px 10px;font-size:.85rem}
+.btn.danger{color:var(--loss)}
+.link{background:none;border:0;padding:0;color:var(--muted);text-decoration:underline;font-size:.85rem}
+
+nav.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line)}
+nav.tabs button{background:none;border:0;padding:10px 14px;font-family:var(--display);font-weight:600;font-size:1.2rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-1px}
+nav.tabs button[aria-selected="true"]{color:var(--fg);border-color:var(--gold)}
+
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.panel h2{font-family:var(--display);font-weight:800;font-size:1.5rem;text-transform:uppercase;letter-spacing:.03em;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.panel h2 small{font-family:var(--body);font-size:.75rem;font-weight:500;color:var(--muted);letter-spacing:.06em}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media (max-width:520px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi .l{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.kpi .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:1.25rem;font-weight:600}
+.pos{color:var(--win)} .neg{color:var(--loss)}
+.chart{width:100%;height:150px;display:block}
+.chart text{fill:var(--muted);font:10px var(--mono)}
+.sub{font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
+.limit{display:flex;flex-direction:column;gap:6px;font-size:.85rem}
+.bar{height:8px;background:var(--sunk);border-radius:4px;overflow:hidden}
+.bar b{display:block;height:100%;background:var(--gold)}
+.bar b.over{background:var(--loss)}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--sunk)}
+td.r,th.r{text-align:right}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--sunk)}
+tbody tr:last-child td{border-bottom:0}
+.mini td,.mini th{cursor:default;padding:7px 10px}
+.mini tbody tr:hover{background:none}
+
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.72rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.p-win{background:var(--win-soft);color:var(--win)} .p-loss{background:var(--loss-soft);color:var(--loss)}
+.p-pend{background:var(--pend-soft);color:var(--pend)} .p-void,.p-be{background:var(--void-soft);color:var(--void)}
+.p-ex{background:var(--gold-soft);color:var(--gold)}
+.tag{display:inline-block;font-size:.72rem;padding:1px 6px;border:1px solid var(--line);border-radius:4px;margin-right:3px;color:var(--muted)}
+.dir{font-family:var(--mono);font-weight:600}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.toolbar input,.toolbar select{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.toolbar input{flex:1 1 180px;min-width:0}
+
+/* bet slips — perforated stubs */
+.slips{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.slip{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;min-width:0}
+.slip .top{padding:14px 16px 10px;display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.slip .top h3{font-size:.95rem;font-weight:600}
+.slip .top .meta{font-size:.78rem;color:var(--muted)}
+.legs{list-style:none;margin:0;padding:0 16px 12px;display:flex;flex-direction:column;gap:8px}
+.leg{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;font-size:.86rem}
+.leg .ev{min-width:0}
+.leg .ev b{display:block;font-weight:600;overflow-wrap:anywhere}
+.leg .ev span{color:var(--muted);font-size:.78rem}
+.leg button.pill{border:0}
+.perf{position:relative;height:0;border-top:2px dashed var(--line);margin:0 12px}
+.perf::before,.perf::after{content:"";position:absolute;top:-9px;width:16px;height:16px;border-radius:50%;background:var(--bg);border:1px solid var(--line)}
+.perf::before{left:-21px} .perf::after{right:-21px}
+.stub{padding:12px 16px 14px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stub .l{font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.stub .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600}
+.slip .foot{display:flex;justify-content:space-between;padding:0 16px 14px;gap:8px}
+
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:28px;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center;color:var(--muted)}
+.empty h3{color:var(--fg);font-family:var(--display);font-size:1.4rem;text-transform:uppercase}
+.note{font-size:.82rem;color:var(--muted);max-width:65ch}
+
+/* dialog */
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--fg);padding:0;width:min(640px,calc(100vw - 32px));max-height:calc(100dvh - 40px)}
+dialog::backdrop{background:rgba(10,14,20,.55)}
+dialog form{display:flex;flex-direction:column;gap:14px;padding:20px}
+dialog h2{font-family:var(--display);font-size:1.7rem;text-transform:uppercase}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+label{display:flex;flex-direction:column;gap:4px;font-size:.75rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);min-width:0}
+label input,label select,label textarea{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:.95rem;letter-spacing:0;text-transform:none;color:var(--fg);width:100%}
+textarea{min-height:70px;resize:vertical}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg label{flex:1;flex-direction:row;justify-content:center;padding:8px;cursor:pointer;font-size:.85rem;text-transform:none;letter-spacing:0;color:var(--fg)}
+.seg input{position:absolute;opacity:0;width:1px}
+.seg label:has(input:checked){background:var(--fg);color:var(--bg)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips label{flex-direction:row;align-items:center;gap:0;padding:5px 10px;border:1px solid var(--line);border-radius:999px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:.82rem;color:var(--fg)}
+.chips input{position:absolute;opacity:0;width:1px}
+.chips label:has(input:checked){background:var(--gold-soft);border-color:var(--gold);color:var(--gold)}
+.calc{background:var(--sunk);border-radius:8px;padding:10px 12px;font-size:.88rem;display:flex;flex-wrap:wrap;gap:16px}
+.legrows{display:flex;flex-direction:column;gap:10px}
+.legrow{display:grid;grid-template-columns:1.2fr 2fr 1.3fr 1.3fr .8fr 1fr auto;gap:8px;align-items:end;padding:10px;border:1px solid var(--line);border-radius:8px}
+@media (max-width:620px){.legrow{grid-template-columns:1fr 1fr}.legrow .wide{grid-column:1/-1}}
+.legrow .x{border:0;background:none;color:var(--loss);font-size:1.2rem;padding:6px}
+.dlgfoot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.confirm{display:flex;gap:8px;align-items:center;font-size:.85rem}
+@media (prefers-reduced-motion:no-preference){.slip,.panel{transition:border-color .15s}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>Risk <span>to</span> Reward</h1>
+      <p>Trading journal and sports betting log. <span class="mode" id="mode"><i></i><span>Connecting…</span></span> <button class="link" id="signout" type="button" hidden>Sign out</button></p>
+    </div>
+    <div class="actions">
+      <button class="btn gold" id="addTrade" type="button">+ Log trade</button>
+      <button class="btn primary" id="addSlip" type="button">+ Log bet</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="overview" aria-selected="true" id="tab-overview">Overview</button>
+    <button role="tab" data-tab="trades" aria-selected="false" id="tab-trades">Trades</button>
+    <button role="tab" data-tab="slips" aria-selected="false" id="tab-slips">Bets</button>
+  </nav>
+
+  <main id="view"></main>
+</div>
+
+<dialog id="tradeDlg">
+  <form id="tradeForm" method="dialog">
+    <h2 id="tradeTitle">Log trade</h2>
+    <div class="fields">
+      <label>Date<input type="date" id="t-date" required></label>
+      <label>Instrument<select id="t-symsel">
+        <optgroup label="Major pairs"><option>EURUSD</option><option>GBPUSD</option><option>USDJPY</option><option>USDCHF</option><option>AUDUSD</option><option>USDCAD</option><option>NZDUSD</option></optgroup>
+        <optgroup label="Metals"><option>XAUUSD</option><option>XAGUSD</option></optgroup>
+        <optgroup label="Popular crosses"><option>EURGBP</option><option>EURJPY</option><option>GBPJPY</option><option>AUDJPY</option><option>EURAUD</option></optgroup>
+        <optgroup label="Indices &amp; crypto"><option>NAS100</option><option>US30</option><option>SPX500</option><option>GER40</option><option>BTCUSD</option></optgroup>
+        <option value="__other">Other…</option></select>
+        <input id="t-sym" placeholder="Type symbol" hidden></label>
+      <label>Account<select id="t-acct"><option>Demo</option><option>Live</option><option>Prop</option></select></label>
+      <label>Session<select id="t-sess"><option>London</option><option>New York</option><option>Asian</option><option>London/NY overlap</option></select></label>
+    </div>
+        <div class="seg" role="radiogroup" aria-label="Direction">
+      <label><input type="radio" name="dir" value="Long" id="t-long" checked>Long / Buy</label>
+      <label><input type="radio" name="dir" value="Short" id="t-short">Short / Sell</label>
+    </div>
+    <div class="fields">
+      <label>Entry<input type="number" step="any" id="t-entry" required></label>
+      <label>Stop loss<input type="number" step="any" id="t-sl"></label>
+      <label>Take profit<input type="number" step="any" id="t-tp"></label>
+      <label>Exit (blank = open)<input type="number" step="any" id="t-exit"></label>
+      <label>Lots<input type="number" step="any" id="t-lots" value="0.01"></label>
+      <label>P&amp;L (account ccy)<input type="number" step="any" id="t-pnl"></label>
+    </div>
+    <div class="calc num" id="t-calc"></div>
+    <div><p class="sub" style="margin-bottom:6px">Confluence</p><div class="chips" id="t-tags"></div></div>
+    <div class="fields">
+      <label>Execution (1–5)<select id="t-rate"><option value="">–</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+      <label>State of mind<select id="t-mind"><option value="">–</option><option>Calm</option><option>Confident</option><option>FOMO</option><option>Revenge</option><option>Hesitant</option><option>Tired</option></select></label>
+      <label>Followed plan?<select id="t-plan"><option value="">–</option><option>Yes</option><option>Partly</option><option>No</option></select></label>
+    </div>
+    <label>Notes / lesson<textarea id="t-notes" placeholder="Why I took it, what price did, what I'd do differently"></textarea></label>
+    <div class="dlgfoot">
+      <span class="confirm" id="t-delwrap"></span>
+      <span class="actions"><button class="btn" type="button" data-close>Cancel</button><button class="btn gold" type="submit">Save trade</button></span>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="slipDlg">
+  <form id="slipForm" method="dialog">
+    <h2 id="slipTitle">Log bet</h2>
+    <div class="fields">
+      <label>Date<input type="date" id="s-date" required></label>
+      <label>Bookmaker<input id="s-book" list="booklist" placeholder="e.g. Bet9ja"></label>
+      <label>Stake (₦)<input type="number" step="any" min="0" id="s-stake" required></label>
+      <label>Boost / bonus %<input type="number" step="any" min="0" id="s-boost" placeholder="0"></label>
+    </div>
+    <datalist id="booklist"><option>Bet9ja</option><option>SportyBet</option><option>BetKing</option><option>1xBet</option><option>Betano</option><option>MSport</option><option>Betway</option><option>NairaBet</option><option>MerryBet</option><option>Bet365</option></datalist>
+    <div><p class="sub" style="margin-bottom:6px">Selections (decimal odds) — add more than one for an accumulator</p><div class="legrows" id="s-legs"></div></div>
+    <button class="btn small" type="button" id="s-addleg">+ Add selection</button>
+    <div class="calc num" id="s-calc"></div>
+    <label>Notes / reasoning<textarea id="s-notes" placeholder="Why these picks, any research, how it went"></textarea></label>
+    <div class="dlgfoot">
+      <span class="confirm" id="s-delwrap"></span>
+      <span class="actions"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save bet</button></span>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(() => {
+const TAGS = ["Order block","FVG","BOS","CHoCH","Liquidity sweep","Fib 0.5","Fib 0.618","Fib 0.705","Fib 0.786","HTF bias","Premium/Discount","News"];
+const SPORTS = ["Football","Basketball","Tennis","Boxing/MMA","Horse racing","American football","Cricket","Darts","Other"];
+const CCY = ["$","₦","£","€"];
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const today = () => new Date().toISOString().slice(0, 10);
+const n = v => (v === "" || v == null || isNaN(+v)) ? null : +v;
+
+let entries = [];   // all docs
+let settings = { tradeCcy: "$", betCcy: "₦", monthlyLimit: null };
+let tab = "overview";
+let filters = { tq: "", tres: "all", sq: "", sres: "all" };
+/* ===================== SUPABASE SETTINGS =====================
+   Paste your project's URL and anon (public) key here.
+   Supabase dashboard → Project Settings → API.                    */
+const SUPABASE_URL = "https://ryftqrljtiotiobvaqzt.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_0nKuaRj1jWXVu-3DsSlaJQ_dMO0Ep10";
+/* ============================================================== */
+
+const configured = !SUPABASE_URL.startsWith("PASTE") && !SUPABASE_ANON_KEY.startsWith("PASTE");
+let sb = null, session = null, mode = "local", ready = false, channel = null;
+const LS = "risk-to-reward-v1";
+
+/* ---------- storage ---------- */
+function readLocal(){ try { return JSON.parse(localStorage.getItem(LS) || "[]"); } catch { return []; } }
+function loadLocal(){ applyDocs(readLocal()); }
+function saveLocal(){ if (mode === "cloud") return; try { localStorage.setItem(LS, JSON.stringify(entries.concat([{ id:"settings", kind:"settings", ...settings }]))); } catch {} }
+function applyDocs(docs){
+  const s = docs.find(d => d.kind === "settings");
+  if (s) settings = { ...settings, ...s };
+  entries = docs.filter(d => d.kind === "trade" || d.kind === "slip");
+  ready = true; render();
+}
+function upsertMem(doc){ const i = entries.findIndex(x => x.id === doc.id); if (i >= 0) entries[i] = doc; else entries.push(doc); }
+
+async function put(doc){
+  if (mode === "cloud" && !session) { toast("Sign in first"); return; }
+  if (doc.kind !== "settings") upsertMem(doc);
+  render();
+  if (mode === "cloud") {
+    const { error } = await sb.from("entries").upsert(
+      { user_id: session.user.id, id: doc.id, kind: doc.kind, data: doc, updated_at: new Date().toISOString() },
+      { onConflict: "user_id,id" });
+    if (error) toast("Couldn't save: " + error.message);
+  } else saveLocal();
+}
+async function del(id){
+  entries = entries.filter(x => x.id !== id); render();
+  if (mode === "cloud") { const { error } = await sb.from("entries").delete().eq("id", id); if (error) toast("Couldn't delete: " + error.message); }
+  else saveLocal();
+}
+async function putSettings(){ await put({ id: "settings", kind: "settings", ...settings }); render(); }
+function setMode(on, text){ const m = $("#mode"); m.classList.toggle("on", on); m.lastElementChild.textContent = text; $("#signout").hidden = !(mode === "cloud" && session); }
+
+async function fetchAll(){
+  const { data, error } = await sb.from("entries").select("id,data");
+  if (error) { toast("Couldn't load your journal: " + error.message); ready = true; render(); return; }
+  applyDocs(data.map(r => ({ ...r.data, id: r.id })));
+}
+async function onSession(){
+  if (channel) { sb.removeChannel(channel); channel = null; }
+  if (!session) { entries = []; ready = true; setMode(false, "Signed out"); render(); return; }
+  setMode(true, "Synced · " + session.user.email);
+  await fetchAll();
+  // live updates from your other devices
+  channel = sb.channel("entries-" + session.user.id)
+    .on("postgres_changes", { event: "*", schema: "public", table: "entries", filter: "user_id=eq." + session.user.id }, () => fetchAll())
+    .subscribe();
+}
+async function init(){
+  render();
+  if (configured && window.supabase) {
+    mode = "cloud";
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const { data } = await sb.auth.getSession();
+    session = data.session;
+    sb.auth.onAuthStateChange((_ev, s) => { const changed = (s?.user?.id) !== (session?.user?.id); session = s; if (changed) onSession(); });
+    onSession();
+  } else {
+    setMode(false, configured ? "Couldn't reach Supabase · saving in this browser" : "Saved in this browser only");
+    loadLocal();
+  }
+}
+
+function authView(){
+  return `<form class="panel" id="authForm" style="max-width:420px;margin:0 auto">
+    <h2>Sign in</h2>
+    <p class="note">Sign in to keep your journal in sync across your phone and laptop.</p>
+    <label>Email<input type="email" id="a-email" required autocomplete="email"></label>
+    <label>Password<input type="password" id="a-pass" required minlength="6" autocomplete="current-password"></label>
+    <div class="actions"><button class="btn primary" type="submit" data-mode="in">Sign in</button><button class="btn" type="submit" data-mode="up">Create account</button></div>
+    <p class="note" id="a-msg" role="status"></p></form>`;
+}
+document.addEventListener("submit", async e => {
+  if (e.target.id !== "authForm") return;
+  e.preventDefault();
+  const email = $("#a-email").value.trim(), password = $("#a-pass").value, msg = $("#a-msg");
+  const up = e.submitter && e.submitter.dataset.mode === "up";
+  msg.textContent = up ? "Creating account…" : "Signing in…";
+  const { data, error } = up ? await sb.auth.signUp({ email, password }) : await sb.auth.signInWithPassword({ email, password });
+  if (error) { msg.textContent = error.message; return; }
+  if (up && !data.session) msg.textContent = "Account created. Check your email for the confirmation link, then sign in here.";
+});
+$("#signout").addEventListener("click", async () => { await sb.auth.signOut(); toast("Signed out"); });
+
+/* ---------- maths ---------- */
+function tradeR(t){
+  const e = n(t.entry), s = n(t.sl), x = n(t.exit);
+  if (e == null || s == null || x == null || e === s) return null;
+  const risk = Math.abs(e - s);
+  return (t.dir === "Short" ? e - x : x - e) / risk;
+}
+function plannedRR(t){
+  const e = n(t.entry), s = n(t.sl), p = n(t.tp);
+  if (e == null || s == null || p == null || e === s) return null;
+  return Math.abs(p - e) / Math.abs(e - s);
+}
+function tradeResult(t){
+  if (n(t.exit) == null && n(t.pnl) == null) return "open";
+  const v = n(t.pnl) ?? tradeR(t);
+  if (v == null) return "open";
+  return v > 0 ? "win" : v < 0 ? "loss" : "be";
+}
+function legOdds(l){ return l.res === "void" ? 1 : (n(l.odds) || 1); }
+function slipOdds(s){ return (s.legs || []).reduce((a, l) => a * legOdds(l), 1); }
+function slipStatus(s){
+  const legs = s.legs || [];
+  if (legs.some(l => l.res === "lost")) return "lost";
+  if (legs.some(l => !l.res || l.res === "pending")) return "pending";
+  if (legs.length && legs.every(l => l.res === "void")) return "void";
+  return "won";
+}
+function slipReturn(s){
+  const st = slipStatus(s), stake = n(s.stake) || 0;
+  if (st === "lost") return 0;
+  if (st === "void") return stake;
+  const gross = stake * slipOdds(s);
+  const boost = n(s.boost) ? (gross - stake) * (n(s.boost) / 100) : 0;
+  return gross + boost;
+}
+function slipPotential(s){ const stake = n(s.stake) || 0; const all = (s.legs||[]).reduce((a,l)=>a*(l.res==="void"?1:(n(l.odds)||1)),1); const g = stake*all; return g + (n(s.boost) ? (g-stake)*n(s.boost)/100 : 0); }
+const money = (v, c) => (v < 0 ? "−" : "") + c + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const signed = (v, c) => (v > 0 ? "+" : "") + money(v, c);
+const cls = v => v > 0 ? "pos" : v < 0 ? "neg" : "";
+
+/* ---------- chart ---------- */
+function curve(points, ccy){
+  const W = 600, H = 150, P = { l: 52, r: 10, t: 10, b: 20 };
+  if (points.length < 2) return `<p class="note">The equity curve appears after two settled entries.</p>`;
+  const vals = [0, ...points.map(p => p.v)];
+  let lo = Math.min(...vals), hi = Math.max(...vals); if (lo === hi) { lo -= 1; hi += 1; }
+  const x = i => P.l + i * (W - P.l - P.r) / (vals.length - 1);
+  const y = v => P.t + (hi - v) * (H - P.t - P.b) / (hi - lo);
+  const line = vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const area = line + `L${x(vals.length - 1).toFixed(1)},${y(0).toFixed(1)}L${x(0).toFixed(1)},${y(0).toFixed(1)}Z`;
+  const last = vals[vals.length - 1], col = last >= 0 ? "var(--win)" : "var(--loss)";
+  const fmt = v => (Math.abs(v) >= 1000 ? (v/1000).toFixed(1) + "k" : v.toFixed(0));
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Cumulative profit curve">
+    <line x1="${P.l}" x2="${W-P.r}" y1="${y(hi)}" y2="${y(hi)}" stroke="var(--line)" stroke-dasharray="2 4"/>
+    <line x1="${P.l}" x2="${W-P.r}" y1="${y(lo)}" y2="${y(lo)}" stroke="var(--line)" stroke-dasharray="2 4"/>
+    <line x1="${P.l}" x2="${W-P.r}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)" stroke-width="1"/>
+    <text x="${P.l-6}" y="${y(hi)+3}" text-anchor="end">${ccy}${fmt(hi)}</text>
+    <text x="${P.l-6}" y="${y(lo)+3}" text-anchor="end">${ccy}${fmt(lo)}</text>
+    ${(y(0)-y(hi)>12 && y(lo)-y(0)>12) ? `<text x="${P.l-6}" y="${y(0)+3}" text-anchor="end">0</text>` : ""}
+    <path d="${area}" fill="${col}" fill-opacity=".12" stroke="none"/>
+    <path d="${line}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke"/>
+    <circle cx="${x(vals.length-1)}" cy="${y(last)}" r="3.5" fill="${col}"/>
+    <text x="${P.l}" y="${H-4}">${esc(points[0].d)}</text>
+    <text x="${W-P.r}" y="${H-4}" text-anchor="end">${esc(points[points.length-1].d)}</text>
+  </svg>`;
+}
+
+/* ---------- render ---------- */
+const trades = () => entries.filter(e => e.kind === "trade").sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.created||0)-(a.created||0));
+const slips = () => entries.filter(e => e.kind === "slip").sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.created||0)-(a.created||0));
+const hasExamples = () => entries.some(e => e.example);
+
+function render(){
+  document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
+  const v = $("#view");
+  if (!ready) { v.innerHTML = `<div class="empty"><h3>Opening your journal…</h3></div>`; return; }
+  if (mode === "cloud" && !session) { v.innerHTML = authView(); return; }
+  v.innerHTML = tab === "overview" ? overview() : tab === "trades" ? tradesView() : slipsView();
+}
+
+function exampleBar(){
+  const localCount = mode === "cloud" ? readLocal().filter(d => d.kind === "trade" || d.kind === "slip").length : 0;
+  const imp = localCount ? `<div class="toolbar note">Found ${localCount} entries saved in this browser before you signed in. <button class="btn small" data-act="import-local">Import to my account</button></div>` : "";
+  return imp + (hasExamples() ? `<div class="toolbar note"><span class="pill p-ex">Examples</span> Some entries are example data so you can see how it works. <button class="link" data-act="clear-ex">Remove examples</button></div>` : "");
+}
+
+function overview(){
+  const T = trades(), S = slips();
+  if (!T.length && !S.length) return `${exampleBar()}<div class="empty"><h3>Nothing logged yet</h3>
+    <p>Log a trade from your MT5 account or a sports bet and the summary board fills in here.</p>
+    <div class="actions"><button class="btn gold" data-act="new-trade">+ Log trade</button><button class="btn primary" data-act="new-slip">+ Log bet</button><button class="btn" data-act="examples">Load example entries</button></div></div>`;
+  const tc = settings.tradeCcy, bc = settings.betCcy;
+  const pct = x => x == null ? "–" : (x * 100).toFixed(0) + "%";
+  // trades
+  const closed = T.filter(t => tradeResult(t) !== "open").slice().reverse();
+  const wins = closed.filter(t => tradeResult(t) === "win"), losses = closed.filter(t => tradeResult(t) === "loss");
+  const pnl = closed.reduce((a, t) => a + (n(t.pnl) || 0), 0);
+  const gw = wins.reduce((a, t) => a + (n(t.pnl) || 0), 0), gl = Math.abs(losses.reduce((a, t) => a + (n(t.pnl) || 0), 0));
+  const rs = closed.map(tradeR).filter(r => r != null);
+  const avgR = rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null;
+  let cum = 0; const tPts = closed.filter(t => n(t.pnl) != null).map(t => ({ d: t.date, v: (cum += n(t.pnl)) }));
+  // by setup
+  const tagStats = TAGS.map(tag => { const g = closed.filter(t => (t.tags||[]).includes(tag)); return { tag, n: g.length, w: g.filter(t => tradeResult(t)==="win").length, p: g.reduce((a,t)=>a+(n(t.pnl)||0),0) }; }).filter(x => x.n).sort((a,b)=>b.n-a.n);
+  const symStats = {}; closed.forEach(t => { const k = t.sym||"?"; (symStats[k] ||= {n:0,w:0,p:0,r:0,rn:0}); const x = symStats[k]; x.n++; if (tradeResult(t)==="win") x.w++; x.p += n(t.pnl)||0; const r = tradeR(t); if (r!=null){ x.r+=r; x.rn++; } });
+  // slips
+  const settled = S.filter(s => slipStatus(s) !== "pending").slice().reverse();
+  const staked = settled.reduce((a, s) => a + (n(s.stake) || 0), 0);
+  const returned = settled.reduce((a, s) => a + slipReturn(s), 0);
+  const profit = returned - staked;
+  const won = settled.filter(s => slipStatus(s) === "won").length;
+  const legsAll = S.flatMap(s => s.legs || []).filter(l => l.res === "won" || l.res === "lost");
+  const legHit = legsAll.length ? legsAll.filter(l => l.res === "won").length / legsAll.length : null;
+  let c2 = 0; const sPts = settled.map(s => ({ d: s.date, v: (c2 += slipReturn(s) - (n(s.stake) || 0)) }));
+  const byLegs = {}; settled.forEach(s => { const k = (s.legs||[]).length >= 6 ? "6+" : String((s.legs||[]).length); (byLegs[k] ||= { n:0, w:0, st:0, ret:0 }); const b = byLegs[k]; b.n++; b.st += n(s.stake)||0; b.ret += slipReturn(s); if (slipStatus(s)==="won") b.w++; });
+  const bySport = {}; S.flatMap(x => x.legs||[]).filter(l => l.res==="won"||l.res==="lost").forEach(l => { const k = l.sport||"Other"; (bySport[k] ||= {n:0,w:0}); bySport[k].n++; if (l.res==="won") bySport[k].w++; });
+  const month = today().slice(0, 7);
+  const monthStake = S.filter(s => (s.date||"").startsWith(month)).reduce((a, s) => a + (n(s.stake) || 0), 0);
+  const lim = n(settings.monthlyLimit);
+
+  return `${exampleBar()}<div class="grid2">
+  <section class="panel">
+    <h2>Trading <small>${closed.length} closed · ${T.length - closed.length} open</small></h2>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Net P&amp;L</div><div class="v ${cls(pnl)}">${signed(pnl, tc)}</div></div>
+      <div class="kpi"><div class="l">Win rate</div><div class="v">${closed.length ? pct(wins.length / closed.length) : "–"}</div></div>
+      <div class="kpi"><div class="l">Avg R</div><div class="v ${cls(avgR||0)}">${avgR == null ? "–" : (avgR > 0 ? "+" : "") + avgR.toFixed(2) + "R"}</div></div>
+      <div class="kpi"><div class="l">Profit factor</div><div class="v">${gl ? (gw / gl).toFixed(2) : gw ? "∞" : "–"}</div></div>
+    </div>
+    ${curve(tPts, tc)}
+    ${Object.keys(symStats).length ? `<p class="sub">By instrument</p><div class="tablewrap"><table class="mini"><thead><tr><th>Pair</th><th class="r">Trades</th><th class="r">Win %</th><th class="r">Avg R</th><th class="r">P&amp;L</th></tr></thead><tbody>
+      ${Object.entries(symStats).sort((a,b)=>b[1].n-a[1].n).map(([k,x]) => `<tr><td><b>${esc(k)}</b></td><td class="r num">${x.n}</td><td class="r num">${pct(x.w/x.n)}</td><td class="r num ${cls(x.r)}">${x.rn?(x.r/x.rn>0?"+":"")+(x.r/x.rn).toFixed(2)+"R":"–"}</td><td class="r num ${cls(x.p)}">${signed(x.p, tc)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${tagStats.length ? `<p class="sub">By confluence</p><div class="tablewrap"><table class="mini"><thead><tr><th>Setup</th><th class="r">Trades</th><th class="r">Win %</th><th class="r">P&amp;L</th></tr></thead><tbody>
+      ${tagStats.map(x => `<tr><td>${esc(x.tag)}</td><td class="r num">${x.n}</td><td class="r num">${pct(x.w/x.n)}</td><td class="r num ${cls(x.p)}">${signed(x.p, tc)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+  </section>
+  <section class="panel">
+    <h2>Betting <small>${settled.length} settled · ${S.length - settled.length} pending</small></h2>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Profit</div><div class="v ${cls(profit)}">${signed(profit, bc)}</div></div>
+      <div class="kpi"><div class="l">ROI</div><div class="v ${cls(profit)}">${staked ? (profit / staked * 100).toFixed(1) + "%" : "–"}</div></div>
+      <div class="kpi"><div class="l">Bets won</div><div class="v">${settled.length ? `${won}/${settled.length}` : "–"}</div></div>
+      <div class="kpi"><div class="l">Pick hit rate</div><div class="v">${pct(legHit)}</div></div>
+    </div>
+    ${curve(sPts, bc)}
+    <div class="limit">
+      <div class="toolbar" style="justify-content:space-between"><span>This month staked: <b class="num">${money(monthStake, bc)}</b>${lim ? ` of <span class="num">${money(lim, bc)}</span> limit` : ""}</span>
+      <button class="link" data-act="settings">${lim ? "Change limit" : "Set a monthly limit"}</button></div>
+      ${lim ? `<div class="bar"><b class="${monthStake > lim ? "over" : ""}" style="width:${Math.min(100, monthStake / lim * 100)}%"></b></div>` : ""}
+    </div>
+    ${Object.keys(bySport).length ? `<p class="sub">Picks by sport</p><div class="tablewrap"><table class="mini"><thead><tr><th>Sport</th><th class="r">Settled picks</th><th class="r">Hit rate</th></tr></thead><tbody>
+      ${Object.entries(bySport).sort((a,b)=>b[1].n-a[1].n).map(([k,b]) => `<tr><td>${esc(k)}</td><td class="r num">${b.n}</td><td class="r num">${pct(b.w/b.n)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${Object.keys(byLegs).length ? `<p class="sub">Singles vs accumulators</p><div class="tablewrap"><table class="mini"><thead><tr><th>Type</th><th class="r">Bets</th><th class="r">Won</th><th class="r">Staked</th><th class="r">ROI</th></tr></thead><tbody>
+      ${Object.entries(byLegs).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([k,b]) => `<tr><td>${k === "1" ? "Single" : k + "-fold"}</td><td class="r num">${b.n}</td><td class="r num">${b.w}</td><td class="r num">${money(b.st, bc)}</td><td class="r num ${cls(b.ret-b.st)}">${b.st ? ((b.ret-b.st)/b.st*100).toFixed(0)+"%" : "–"}</td></tr>`).join("")}</tbody></table></div>
+      <p class="note">Each extra selection multiplies the bookmaker's margin, so long accumulators usually return the worst ROI over time. This table shows whether that holds for you.</p>` : ""}
+  </section></div>
+  <p class="note" style="margin-top:16px">Currencies: trades in <b>${tc}</b>, bets in <b>${bc}</b>. <button class="link" data-act="settings">Change</button></p>
+  ${settingsForm()}`;
+}
+
+function settingsForm(){
+  return `<form class="panel" id="settingsForm" hidden style="margin-top:12px"><h2>Settings</h2><div class="fields">
+    <label>Trading currency<select id="set-tc">${CCY.map(c=>`<option ${c===settings.tradeCcy?"selected":""}>${c}</option>`).join("")}</select></label>
+    <label>Betting currency<select id="set-bc">${CCY.map(c=>`<option ${c===settings.betCcy?"selected":""}>${c}</option>`).join("")}</select></label>
+    <label>Monthly stake limit<input type="number" min="0" step="any" id="set-lim" value="${settings.monthlyLimit ?? ""}" placeholder="No limit"></label>
+  </div><div class="actions"><button class="btn primary" type="submit">Save settings</button><button class="btn" type="button" data-act="settings">Close</button></div></form>`;
+}
+
+function tradesView(){
+  let T = trades();
+  if (!T.length) return `<div class="empty"><h3>No trades yet</h3><p>Log entry, stop and exit and the journal works out your R multiple for you.</p><div class="actions"><button class="btn gold" data-act="new-trade">+ Log trade</button><button class="btn" data-act="examples">Load example entries</button></div></div>`;
+  const q = filters.tq.toLowerCase();
+  T = T.filter(t => (filters.tres === "all" || tradeResult(t) === filters.tres) && (!q || [t.sym, t.notes, ...(t.tags||[]), t.sess, t.acct].join(" ").toLowerCase().includes(q)));
+  const tc = settings.tradeCcy;
+  const label = { win:"Win", loss:"Loss", be:"B/E", open:"Open" }, pc = { win:"p-win", loss:"p-loss", be:"p-be", open:"p-pend" };
+  return `${exampleBar()}<div class="toolbar" style="margin-bottom:12px">
+    <input id="f-tq" type="search" placeholder="Search instrument, setup, notes" value="${esc(filters.tq)}">
+    <select id="f-tres">${["all","win","loss","be","open"].map(r=>`<option value="${r}" ${filters.tres===r?"selected":""}>${r==="all"?"All results":label[r]}</option>`).join("")}</select>
+  </div>
+  <div class="tablewrap"><table><thead><tr><th>Date</th><th>Instrument</th><th>Dir</th><th>Account</th><th>Confluence</th><th class="r">Planned</th><th class="r">R</th><th class="r">P&amp;L</th><th>Result</th></tr></thead><tbody>
+  ${T.map(t => { const r = tradeR(t), rr = plannedRR(t), res = tradeResult(t); return `<tr data-edit="${t.id}" tabindex="0">
+    <td class="num">${esc(t.date)}</td><td><b>${esc(t.sym)}</b>${t.example?' <span class="pill p-ex">Ex</span>':""}</td>
+    <td class="dir ${t.dir==="Long"?"pos":"neg"}">${t.dir==="Long"?"BUY":"SELL"}</td><td>${esc(t.acct)}</td>
+    <td>${(t.tags||[]).slice(0,3).map(g=>`<span class="tag">${esc(g)}</span>`).join("")}${(t.tags||[]).length>3?`<span class="tag">+${t.tags.length-3}</span>`:""}</td>
+    <td class="r num">${rr==null?"–":"1:"+rr.toFixed(1)}</td>
+    <td class="r num ${cls(r||0)}">${r==null?"–":(r>0?"+":"")+r.toFixed(2)}</td>
+    <td class="r num ${cls(n(t.pnl)||0)}">${n(t.pnl)==null?"–":signed(n(t.pnl),tc)}</td>
+    <td><span class="pill ${pc[res]}">${label[res]}</span></td></tr>`; }).join("") || `<tr><td colspan="9" style="text-align:center;color:var(--muted)">No trades match these filters.</td></tr>`}
+  </tbody></table></div>`;
+}
+
+function slipsView(){
+  let S = slips();
+  if (!S.length) return `<div class="empty"><h3>No bets yet</h3><p>Log a single or an accumulator with decimal odds. Tap a selection's result chip later to settle it.</p><div class="actions"><button class="btn primary" data-act="new-slip">+ Log bet</button><button class="btn" data-act="examples">Load example entries</button></div></div>`;
+  const q = filters.sq.toLowerCase();
+  S = S.filter(s => (filters.sres === "all" || slipStatus(s) === filters.sres) && (!q || [s.book, s.notes, ...(s.legs||[]).flatMap(l=>[l.ev,l.mkt,l.pick,l.sport])].join(" ").toLowerCase().includes(q)));
+  const bc = settings.betCcy;
+  const sp = { won:"p-win", lost:"p-loss", pending:"p-pend", void:"p-void" };
+  return `${exampleBar()}<div class="toolbar" style="margin-bottom:12px">
+    <input id="f-sq" type="search" placeholder="Search team, market, bookmaker" value="${esc(filters.sq)}">
+    <select id="f-sres">${["all","pending","won","lost","void"].map(r=>`<option value="${r}" ${filters.sres===r?"selected":""}>${r==="all"?"All bets":r[0].toUpperCase()+r.slice(1)}</option>`).join("")}</select>
+  </div>
+  <div class="slips">${S.map(s => { const st = slipStatus(s), legs = s.legs||[], ret = st==="pending" ? null : slipReturn(s), prof = ret==null?null:ret-(n(s.stake)||0);
+    return `<article class="slip">
+      <div class="top"><div><h3>${legs.length===1?esc(legs[0].sport||"Single")+" single":legs.length+"-fold accumulator"}${s.example?' <span class="pill p-ex">Ex</span>':""}</h3><div class="meta num">${esc(s.date)} · ${esc(s.book||"Bookmaker")}</div></div><span class="pill ${sp[st]}">${st}</span></div>
+      <ul class="legs">${legs.map((l,i) => `<li class="leg"><div class="ev"><b>${esc(l.pick||"—")}</b><span>${esc([l.sport,l.ev,l.mkt].filter(Boolean).join(" · "))}</span></div>
+        <span class="num">${n(l.odds)?n(l.odds).toFixed(2):"–"}</span>
+        <button type="button" class="pill ${sp[l.res==="won"?"won":l.res==="lost"?"lost":l.res==="void"?"void":"pending"]}" data-cycle="${s.id}" data-leg="${i}" title="Tap to change result">${l.res||"pending"}</button></li>`).join("")}</ul>
+      <div class="perf"></div>
+      <div class="stub">
+        <div><div class="l">Stake</div><div class="v">${money(n(s.stake)||0,bc)}</div></div>
+        <div><div class="l">Odds</div><div class="v">${slipOdds(s).toFixed(2)}</div></div>
+        <div><div class="l">${st==="pending"?"To return":"Profit"}</div><div class="v ${prof==null?"":cls(prof)}">${prof==null?money(slipPotential(s),bc):signed(prof,bc)}</div></div>
+      </div>
+      <div class="foot"><span class="note">${esc((s.notes||"").slice(0,60))}${(s.notes||"").length>60?"…":""}</span><button class="btn small" data-edit="${s.id}">Edit</button></div>
+    </article>`; }).join("") || `<p class="note">No bets match these filters.</p>`}</div>`;
+}
+
+/* ---------- trade dialog ---------- */
+let editing = null;
+function tagChips(sel){ $("#t-tags").innerHTML = TAGS.map((t,i) => `<label><input type="checkbox" id="tag-${i}" value="${esc(t)}" ${sel.includes(t)?"checked":""}>${esc(t)}</label>`).join(""); }
+function openTrade(t){
+  editing = t || null; t = t || { date: today(), sym: "XAUUSD", acct: "Demo", sess: "London", dir: "Long", lots: 0.01, tags: [] };
+  $("#tradeTitle").textContent = editing ? "Edit trade" : "Log trade";
+  const known = [...$("#t-symsel").options].some(o => o.value === t.sym); $("#t-symsel").value = known ? t.sym : "__other"; $("#t-sym").value = known ? "" : (t.sym||""); $("#t-sym").hidden = known; $("#t-date").value = t.date||today(); $("#t-acct").value = t.acct||"Demo"; $("#t-sess").value = t.sess||"London";
+  (t.dir==="Short" ? $("#t-short") : $("#t-long")).checked = true;
+  ["entry","sl","tp","exit","lots","pnl"].forEach(k => $("#t-"+k).value = t[k] ?? "");
+  $("#t-rate").value = t.rate||""; $("#t-mind").value = t.mind||""; $("#t-plan").value = t.plan||""; $("#t-notes").value = t.notes||"";
+  tagChips(t.tags||[]); delControl("#t-delwrap", editing); tradeCalc(); $("#tradeDlg").showModal();
+}
+function readTrade(){
+  const t = { ...(editing||{}), id: editing?.id || uid(), kind:"trade", created: editing?.created || Date.now(),
+    date: $("#t-date").value, sym: $("#t-symsel").value === "__other" ? ($("#t-sym").value.trim().toUpperCase() || "OTHER") : $("#t-symsel").value, acct: $("#t-acct").value, sess: $("#t-sess").value,
+    dir: $("#t-short").checked ? "Short" : "Long", tags: [...document.querySelectorAll("#t-tags input:checked")].map(i=>i.value),
+    rate: $("#t-rate").value, mind: $("#t-mind").value, plan: $("#t-plan").value, notes: $("#t-notes").value.trim() };
+  ["entry","sl","tp","exit","lots","pnl"].forEach(k => t[k] = n($("#t-"+k).value));
+  return t;
+}
+function tradeCalc(){
+  const t = readTrade(), r = tradeR(t), rr = plannedRR(t);
+  const e = n(t.entry), s = n(t.sl);
+  const wrongSide = e!=null && s!=null && ((t.dir==="Long" && s>=e) || (t.dir==="Short" && s<=e));
+  $("#t-calc").innerHTML = `<span>Planned R:R <b>${rr==null?"–":"1:"+rr.toFixed(2)}</b></span><span>Result <b class="${cls(r||0)}">${r==null?"–":(r>0?"+":"")+r.toFixed(2)+"R"}</b></span>${e!=null&&s!=null?`<span>Risk <b>${Math.abs(e-s).toFixed(e>100?2:5)}</b> pts</span>`:""}${wrongSide?`<span class="neg">Stop is on the wrong side for a ${t.dir.toLowerCase()}</span>`:""}`;
+}
+$("#tradeForm").addEventListener("input", tradeCalc);
+$("#t-symsel").addEventListener("change", e => { const o = e.target.value === "__other"; $("#t-sym").hidden = !o; $("#t-sym").required = o; if (o) $("#t-sym").focus(); });
+$("#tradeForm").addEventListener("submit", e => { e.preventDefault(); put(readTrade()); $("#tradeDlg").close(); toast(editing ? "Trade updated" : "Trade logged"); });
+
+/* ---------- slip dialog ---------- */
+function legRow(l = {}, i){
+  return `<div class="legrow" data-i="${i}">
+    <label>Sport<select class="l-sport">${SPORTS.map(x=>`<option ${x===(l.sport||"Football")?"selected":""}>${x}</option>`).join("")}</select></label>
+    <label class="wide">Event<input class="l-ev" value="${esc(l.ev)}" placeholder="Arsenal v Chelsea"></label>
+    <label>Market<input class="l-mkt" value="${esc(l.mkt)}" placeholder="Match result"></label>
+    <label>Selection<input class="l-pick" value="${esc(l.pick)}" placeholder="Arsenal" required></label>
+    <label>Odds<input class="l-odds" type="number" step="0.01" min="1.01" value="${l.odds ?? ""}" required></label>
+    <label>Result<select class="l-res">${["pending","won","lost","void"].map(r=>`<option ${r===(l.res||"pending")?"selected":""}>${r}</option>`).join("")}</select></label>
+    <button type="button" class="x" data-rmleg aria-label="Remove leg">×</button>
+  </div>`;
+}
+function readLegs(){ return [...document.querySelectorAll("#s-legs .legrow")].map(r => ({ ev: r.querySelector(".l-ev").value.trim(), mkt: r.querySelector(".l-mkt").value.trim(), pick: r.querySelector(".l-pick").value.trim(), odds: n(r.querySelector(".l-odds").value), res: r.querySelector(".l-res").value, sport: r.querySelector(".l-sport").value })); }
+function drawLegs(legs){ $("#s-legs").innerHTML = legs.map(legRow).join(""); }
+function openSlip(s){
+  editing = s || null; s = s || { date: today(), legs: [{}] };
+  $("#slipTitle").textContent = editing ? "Edit bet" : "Log bet";
+  $("#s-date").value = s.date||today(); $("#s-book").value = s.book||""; $("#s-stake").value = s.stake ?? ""; $("#s-boost").value = s.boost ?? ""; $("#s-notes").value = s.notes||"";
+  drawLegs(s.legs?.length ? s.legs : [{}]); delControl("#s-delwrap", editing); slipCalc(); $("#slipDlg").showModal();
+}
+function readSlip(){ return { ...(editing||{}), id: editing?.id || uid(), kind:"slip", created: editing?.created || Date.now(), date: $("#s-date").value, book: $("#s-book").value.trim(), stake: n($("#s-stake").value), boost: n($("#s-boost").value), notes: $("#s-notes").value.trim(), legs: readLegs() }; }
+function slipCalc(){
+  const s = readSlip(), bc = settings.betCcy, st = slipStatus(s);
+  $("#s-calc").innerHTML = `<span>Type <b>${s.legs.length===1?"Single":s.legs.length+"-fold acca"}</b></span><span>Total odds <b>${slipOdds(s).toFixed(2)}</b></span><span>Potential return <b>${money(slipPotential(s), bc)}</b></span><span>Status <b>${st}</b></span>${`<span>Implied chance <b>${(100/slipOdds(s)).toFixed(1)}%</b></span>`}`;
+}
+$("#s-addleg").addEventListener("click", () => { const legs = readLegs(); legs.push({}); drawLegs(legs); slipCalc(); });
+$("#s-legs").addEventListener("click", e => { if (e.target.matches("[data-rmleg]")) { const legs = readLegs(); if (legs.length > 1) { legs.splice(+e.target.closest(".legrow").dataset.i, 1); drawLegs(legs); slipCalc(); } } });
+$("#slipForm").addEventListener("input", slipCalc);
+$("#slipForm").addEventListener("submit", e => { e.preventDefault(); put(readSlip()); $("#slipDlg").close(); toast(editing ? "Bet updated" : "Bet logged"); });
+
+/* ---------- delete with inline confirm ---------- */
+function delControl(sel, item){
+  const w = $(sel);
+  w.innerHTML = item ? `<button type="button" class="btn small danger" data-askdel>Delete</button>` : "";
+  w.onclick = e => {
+    if (e.target.matches("[data-askdel]")) w.innerHTML = `Delete this entry? <button type="button" class="btn small danger" data-yesdel>Yes, delete</button><button type="button" class="btn small" data-nodel>Keep</button>`;
+    else if (e.target.matches("[data-nodel]")) delControl(sel, item);
+    else if (e.target.matches("[data-yesdel]")) { del(item.id); e.target.closest("dialog").close(); toast("Deleted"); }
+  };
+}
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => b.closest("dialog").close()));
+
+/* ---------- examples ---------- */
+function examples(){
+  const d = k => { const x = new Date(); x.setDate(x.getDate() - k); return x.toISOString().slice(0,10); };
+  const ex = [
+    { kind:"trade", date:d(12), sym:"XAUUSD", acct:"Demo", sess:"London", dir:"Long", entry:2315.4, sl:2309.9, tp:2332, exit:2331.6, lots:0.05, pnl:81, tags:["Order block","Fib 0.705","Liquidity sweep"], rate:"4", mind:"Calm", plan:"Yes", notes:"Asian low swept, tapped H1 OB in discount." },
+    { kind:"trade", date:d(10), sym:"XAUUSD", acct:"Demo", sess:"New York", dir:"Short", entry:2341.2, sl:2346, tp:2325, exit:2346, lots:0.05, pnl:-24, tags:["FVG","BOS"], rate:"2", mind:"FOMO", plan:"Partly", notes:"Entered before CHoCH confirmed." },
+    { kind:"trade", date:d(7), sym:"EURUSD", acct:"Demo", sess:"London", dir:"Long", entry:1.0842, sl:1.0827, tp:1.0887, exit:1.0884, lots:0.1, pnl:42, tags:["CHoCH","Fib 0.618","FVG"], rate:"5", mind:"Confident", plan:"Yes" },
+    { kind:"trade", date:d(4), sym:"XAUUSD", acct:"Demo", sess:"London/NY overlap", dir:"Short", entry:2358, sl:2363.5, tp:2340, exit:2352.5, lots:0.05, pnl:27.5, tags:["Order block","Premium/Discount"], rate:"3", mind:"Hesitant", plan:"Yes", notes:"Closed early ahead of CPI." },
+    { kind:"trade", date:d(1), sym:"XAUUSD", acct:"Demo", sess:"London", dir:"Long", entry:2349, sl:2343, tp:2368, lots:0.05, tags:["Fib 0.786","Liquidity sweep"] },
+    { kind:"slip", date:d(9), book:"Bet9ja", stake:2000, legs:[{sport:"Football",ev:"Arsenal v Brentford",mkt:"Match result",pick:"Arsenal",odds:1.4,res:"won"},{sport:"Football",ev:"Real Madrid v Getafe",mkt:"Over 2.5 goals",pick:"Over 2.5",odds:1.55,res:"won"},{sport:"Football",ev:"Inter v Lecce",mkt:"BTTS",pick:"Yes",odds:2.05,res:"lost"}] },
+    { kind:"slip", date:d(6), book:"SportyBet", stake:5000, legs:[{sport:"Football",ev:"Liverpool v Wolves",mkt:"Match result",pick:"Liverpool",odds:1.3,res:"won"},{sport:"Football",ev:"PSG v Nantes",mkt:"Match result",pick:"PSG",odds:1.25,res:"won"}] },
+    { kind:"slip", date:d(3), book:"BetKing", stake:1000, notes:"Weekend acca", legs:[{sport:"Football",ev:"Man City v Fulham",mkt:"Match result",pick:"Man City",odds:1.33,res:"won"},{sport:"Football",ev:"Bayern v Mainz",mkt:"Match result",pick:"Bayern",odds:1.2,res:"won"},{sport:"Football",ev:"Napoli v Como",mkt:"Match result",pick:"Napoli",odds:1.6,res:"won"},{sport:"Football",ev:"Ajax v Utrecht",mkt:"Over 2.5 goals",pick:"Over 2.5",odds:1.5,res:"lost"},{sport:"Football",ev:"Celtic v Hearts",mkt:"Match result",pick:"Celtic",odds:1.28,res:"won"}] },
+    { kind:"slip", date:d(8), book:"Bet9ja", stake:3000, notes:"Value on the underdog", legs:[{sport:"Tennis",ev:"Draper v Rune",mkt:"Match winner",pick:"Draper",odds:2.1,res:"won"}] },
+    { kind:"slip", date:d(5), book:"SportyBet", stake:1500, legs:[{sport:"Boxing/MMA",ev:"UFC Main event",mkt:"Method of victory",pick:"KO/TKO",odds:2.5,res:"lost"}] },
+    { kind:"slip", date:d(0), book:"Bet9ja", stake:2500, legs:[{sport:"Football",ev:"Chelsea v Everton",mkt:"Match result",pick:"Chelsea",odds:1.62},{sport:"Basketball",ev:"Lakers v Suns",mkt:"Moneyline",pick:"Lakers",odds:1.9}] },
+  ];
+  ex.forEach((e, i) => put({ ...e, id: "ex" + i + uid(), example: true, created: Date.now() + i }));
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-tab],[data-act],[data-edit],[data-cycle]"); if (!t) return;
+  if (t.dataset.tab) { tab = t.dataset.tab; render(); return; }
+  if (t.dataset.cycle) { const s = entries.find(x => x.id === t.dataset.cycle); if (!s) return; const order = ["pending","won","lost","void"]; const legs = s.legs.map(l => ({...l})); const l = legs[+t.dataset.leg]; l.res = order[(order.indexOf(l.res||"pending")+1) % 4]; put({ ...s, legs }); return; }
+  if (t.dataset.edit) { const it = entries.find(x => x.id === t.dataset.edit); if (it) it.kind === "trade" ? openTrade(it) : openSlip(it); return; }
+  const a = t.dataset.act;
+  if (a === "new-trade") openTrade(); else if (a === "new-slip") openSlip();
+  else if (a === "examples") { examples(); toast("Example entries added"); }
+  else if (a === "import-local") { const docs = readLocal(); docs.filter(d => d.kind === "trade" || d.kind === "slip").forEach(d => put(d)); try { localStorage.removeItem(LS); } catch {} toast("Imported " + docs.filter(d => d.kind !== "settings").length + " entries"); }
+  else if (a === "clear-ex") { entries.filter(x => x.example).forEach(x => del(x.id)); toast("Examples removed"); }
+  else if (a === "settings") { const f = $("#settingsForm"); if (f) { f.hidden = !f.hidden; if (!f.hidden) f.scrollIntoView({ block: "nearest" }); } }
+});
+document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches("tr[data-edit]")) e.target.click(); });
+document.addEventListener("submit", e => { if (e.target.id !== "settingsForm") return; e.preventDefault(); settings = { ...settings, tradeCcy: $("#set-tc").value, betCcy: $("#set-bc").value, monthlyLimit: n($("#set-lim").value) }; putSettings(); toast("Settings saved"); });
+let ft; document.addEventListener("input", e => {
+  const id = e.target.id; if (!["f-tq","f-sq","f-tres","f-sres"].includes(id)) return;
+  filters[id.slice(2)] = e.target.value; clearTimeout(ft);
+  ft = setTimeout(() => { const pos = e.target.selectionStart; render(); const el = $("#"+id); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch {} } }, e.target.tagName === "SELECT" ? 0 : 200);
+});
+$("#addTrade").onclick = () => openTrade(); $("#addSlip").onclick = () => openSlip();
+
+/* ---------- toast ---------- */
+let tt; function toast(msg){ let el = $("#toast"); if (!el) { el = document.createElement("div"); el.id = "toast"; el.setAttribute("role","status"); el.style.cssText = "position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;font-weight:600;font-size:.9rem;z-index:10"; document.body.appendChild(el); } el.textContent = msg; el.hidden = false; clearTimeout(tt); tt = setTimeout(() => el.hidden = true, 2200); }
+
+init();
+})();
+</script>
+
+</body>
+</html>
