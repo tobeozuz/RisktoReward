@@ -145,6 +145,11 @@ textarea{min-height:70px;resize:vertical}
 .legrow{display:grid;grid-template-columns:1.2fr 2fr 1.3fr 1.3fr .8fr 1fr auto;gap:8px;align-items:end;padding:10px;border:1px solid var(--line);border-radius:8px}
 @media (max-width:620px){.legrow{grid-template-columns:1fr 1fr}.legrow .wide{grid-column:1/-1}}
 .legrow .x{border:0;background:none;color:var(--loss);font-size:1.2rem;padding:6px}
+.import{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px dashed var(--line);border-radius:10px;background:var(--sunk)}
+.import .row{display:flex;gap:8px;flex-wrap:wrap}
+.import input{flex:1 1 160px;min-width:0;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.import .msg{font-size:.82rem;color:var(--muted);margin:0}
+.import .msg.err{color:var(--loss)} .import .msg.ok{color:var(--win)}
 .dlgfoot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .confirm{display:flex;gap:8px;align-items:center;font-size:.85rem}
 @media (prefers-reduced-motion:no-preference){.slip,.panel{transition:border-color .15s}}
@@ -158,6 +163,7 @@ textarea{min-height:70px;resize:vertical}
     </div>
     <div class="actions">
       <button class="btn gold" id="addTrade" type="button">+ Log trade</button>
+      <button class="btn" id="addCode" type="button">Paste SportyBet code</button>
       <button class="btn primary" id="addSlip" type="button">+ Log bet</button>
     </div>
   </header>
@@ -216,6 +222,14 @@ textarea{min-height:70px;resize:vertical}
 <dialog id="slipDlg">
   <form id="slipForm" method="dialog">
     <h2 id="slipTitle">Log bet</h2>
+    <div class="import" id="s-import">
+      <p class="sub">Load a SportyBet booking code</p>
+      <div class="row">
+        <input id="s-code" placeholder="e.g. 3XK9TQ" autocomplete="off" spellcheck="false" maxlength="12">
+        <button class="btn primary small" type="button" id="s-load">Load code</button>
+      </div>
+      <p class="msg" id="s-codemsg" role="status">Fills in every selection, its market and odds. You only add your stake.</p>
+    </div>
     <div class="fields">
       <label>Date<input type="date" id="s-date" required></label>
       <label>Bookmaker<input id="s-book" list="booklist" placeholder="e.g. Bet9ja"></label>
@@ -535,7 +549,7 @@ function slipsView(){
   let S = slips();
   if (!S.length) return `<div class="empty"><h3>No bets yet</h3><p>Log a single or an accumulator with decimal odds. Tap a selection's result chip later to settle it.</p><div class="actions"><button class="btn primary" data-act="new-slip">+ Log bet</button><button class="btn" data-act="examples">Load example entries</button></div></div>`;
   const q = filters.sq.toLowerCase();
-  S = S.filter(s => (filters.sres === "all" || slipStatus(s) === filters.sres) && (!q || [s.book, s.notes, ...(s.legs||[]).flatMap(l=>[l.ev,l.mkt,l.pick,l.sport])].join(" ").toLowerCase().includes(q)));
+  S = S.filter(s => (filters.sres === "all" || slipStatus(s) === filters.sres) && (!q || [s.book, s.code, s.notes, ...(s.legs||[]).flatMap(l=>[l.ev,l.mkt,l.pick,l.sport])].join(" ").toLowerCase().includes(q)));
   const bc = settings.betCcy;
   const sp = { won:"p-win", lost:"p-loss", pending:"p-pend", void:"p-void" };
   return `${exampleBar()}<div class="toolbar" style="margin-bottom:12px">
@@ -544,7 +558,7 @@ function slipsView(){
   </div>
   <div class="slips">${S.map(s => { const st = slipStatus(s), legs = s.legs||[], ret = st==="pending" ? null : slipReturn(s), prof = ret==null?null:ret-(n(s.stake)||0);
     return `<article class="slip">
-      <div class="top"><div><h3>${legs.length===1?esc(legs[0].sport||"Single")+" single":legs.length+"-fold accumulator"}${s.example?' <span class="pill p-ex">Ex</span>':""}</h3><div class="meta num">${esc(s.date)} · ${esc(s.book||"Bookmaker")}</div></div><span class="pill ${sp[st]}">${st}</span></div>
+      <div class="top"><div><h3>${legs.length===1?esc(legs[0].sport||"Single")+" single":legs.length+"-fold accumulator"}${s.example?' <span class="pill p-ex">Ex</span>':""}</h3><div class="meta num">${esc(s.date)} · ${esc(s.book||"Bookmaker")}${s.code ? " · " + esc(s.code) : ""}</div></div><span class="pill ${sp[st]}">${st}</span></div>
       <ul class="legs">${legs.map((l,i) => `<li class="leg"><div class="ev"><b>${esc(l.pick||"—")}</b><span>${esc([l.sport,l.ev,l.mkt].filter(Boolean).join(" · "))}</span></div>
         <span class="num">${n(l.odds)?n(l.odds).toFixed(2):"–"}</span>
         <button type="button" class="pill ${sp[l.res==="won"?"won":l.res==="lost"?"lost":l.res==="void"?"void":"pending"]}" data-cycle="${s.id}" data-leg="${i}" title="Tap to change result">${l.res||"pending"}</button></li>`).join("")}</ul>
@@ -606,9 +620,71 @@ function openSlip(s){
   editing = s || null; s = s || { date: today(), legs: [{}] };
   $("#slipTitle").textContent = editing ? "Edit bet" : "Log bet";
   $("#s-date").value = s.date||today(); $("#s-book").value = s.book||""; $("#s-stake").value = s.stake ?? ""; $("#s-boost").value = s.boost ?? ""; $("#s-notes").value = s.notes||"";
-  drawLegs(s.legs?.length ? s.legs : [{}]); delControl("#s-delwrap", editing); slipCalc(); $("#slipDlg").showModal();
+  drawLegs(s.legs?.length ? s.legs : [{}]); delControl("#s-delwrap", editing); slipCalc();
+  $("#s-code").value = s.code || ""; slipCode = s.code || "";
+  codeMsg("Fills in every selection, its market and odds. You only add your stake.");
+  $("#s-import").hidden = !!editing;
+  $("#slipDlg").showModal();
 }
-function readSlip(){ return { ...(editing||{}), id: editing?.id || uid(), kind:"slip", created: editing?.created || Date.now(), date: $("#s-date").value, book: $("#s-book").value.trim(), stake: n($("#s-stake").value), boost: n($("#s-boost").value), notes: $("#s-notes").value.trim(), legs: readLegs() }; }
+function readSlip(){ return { ...(editing||{}), id: editing?.id || uid(), kind:"slip", created: editing?.created || Date.now(), date: $("#s-date").value, book: $("#s-book").value.trim(), stake: n($("#s-stake").value), boost: n($("#s-boost").value), notes: $("#s-notes").value.trim(), legs: readLegs(), code: slipCode || undefined }; }
+/* ---------- SportyBet booking code import ---------- */
+let slipCode = "";
+function codeMsg(t, kind){ const m = $("#s-codemsg"); m.textContent = t; m.className = "msg" + (kind ? " " + kind : ""); }
+function mapSport(name){
+  const x = String(name || "").toLowerCase();
+  if (!x) return "Football";
+  if (x.includes("soccer") || x.includes("football") && !x.includes("american")) return "Football";
+  if (x.includes("american")) return "American football";
+  if (x.includes("basket")) return "Basketball";
+  if (x.includes("tennis")) return "Tennis";
+  if (x.includes("box") || x.includes("mma") || x.includes("ufc")) return "Boxing/MMA";
+  if (x.includes("horse")) return "Horse racing";
+  if (x.includes("cricket")) return "Cricket";
+  if (x.includes("dart")) return "Darts";
+  return "Other";
+}
+function legFromOutcome(o){
+  const m = (o.markets || [])[0] || {}, oc = (m.outcomes || [])[0] || {};
+  const home = o.homeTeamName || "", away = o.awayTeamName || "";
+  const start = Number(o.estimateStartTime);
+  const when = start > 0 ? new Date(start).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  return {
+    sport: mapSport(o.sport?.name),
+    ev: [home && away ? home + " v " + away : (home || away || "Event"), when].filter(Boolean).join(" · "),
+    mkt: m.desc || "",
+    pick: oc.desc === "Home" && home ? home + " (Home)" : oc.desc === "Away" && away ? away + " (Away)" : (oc.desc || ""),
+    odds: n(oc.odds),
+    res: "pending",
+  };
+}
+async function loadCode(){
+  const code = $("#s-code").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (code.length < 4) { codeMsg("Type the booking code from your SportyBet slip.", "err"); return; }
+  const btn = $("#s-load"); btn.disabled = true; codeMsg("Loading " + code + "…");
+  try {
+    const r = await fetch("/api/sportybet?code=" + encodeURIComponent(code));
+    const ct = r.headers.get("content-type") || "";
+    if (!ct.includes("json")) throw new Error("Code loading only works on your live Vercel link, not when the file is opened from your computer.");
+    const j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || "Couldn't load that code.");
+    const outs = j.outcomes || [];
+    if (!outs.length) throw new Error("That code has no selections that can still be loaded.");
+    drawLegs(outs.map(legFromOutcome));
+    slipCode = code;
+    $("#s-book").value = "SportyBet";
+    if (!$("#s-notes").value) $("#s-notes").value = "SportyBet code " + code;
+    slipCalc();
+    const skipped = (j.unavailable || 0);
+    codeMsg(`Loaded ${outs.length} selection${outs.length > 1 ? "s" : ""}` + (skipped ? `. ${skipped} more had already started or expired and were left out.` : ".") + " Now enter your stake.", "ok");
+    $("#s-stake").focus();
+  } catch (e) {
+    codeMsg(e.message || "Couldn't load that code.", "err");
+  } finally { btn.disabled = false; }
+}
+$("#s-load").addEventListener("click", loadCode);
+$("#s-code").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); loadCode(); } });
+$("#addCode").onclick = () => { openSlip(); setTimeout(() => $("#s-code").focus(), 50); };
+
 function slipCalc(){
   const s = readSlip(), bc = settings.betCcy, st = slipStatus(s);
   $("#s-calc").innerHTML = `<span>Type <b>${s.legs.length===1?"Single":s.legs.length+"-fold acca"}</b></span><span>Total odds <b>${slipOdds(s).toFixed(2)}</b></span><span>Potential return <b>${money(slipPotential(s), bc)}</b></span><span>Status <b>${st}</b></span>${`<span>Implied chance <b>${(100/slipOdds(s)).toFixed(1)}%</b></span>`}`;
