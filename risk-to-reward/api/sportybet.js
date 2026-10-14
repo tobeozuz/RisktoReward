@@ -40,3 +40,5 @@ module.exports = async (req, res) => {
     return res.end(JSON.stringify({ error: "Couldn't reach SportyBet right now. Try again in a minute." }));
   }
 };
+
+
