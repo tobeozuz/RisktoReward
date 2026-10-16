@@ -115,7 +115,9 @@ details.bet>summary:hover{background:var(--sunk)}
 details.bet[open] .chev{transform:rotate(-135deg);margin:4px 4px 0}
 @media (max-width:480px){details.bet>summary{grid-template-columns:auto minmax(0,1fr) auto}.bet .chev{display:none}}
 .bet .body{border-top:1px solid var(--line);padding-top:12px}
-.leg .ev .score{color:var(--fg);font-family:var(--mono);font-size:.74rem}
+.leg .ev .score{display:block;margin-top:2px;color:var(--fg);font-family:var(--mono);font-size:.74rem}
+.leg .ev .score.live::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--win);margin-right:6px;vertical-align:1px}
+.score.live{color:var(--win);font-weight:600}
 .legauto{font-size:.68rem;color:var(--muted);letter-spacing:.04em}
 .slips{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
 .slip{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;min-width:0}
@@ -283,6 +285,7 @@ let filters = { tq: "", tres: "all", sq: "", sres: "all" };
 /* ===================== SUPABASE SETTINGS =====================
    Paste your project's URL and anon (public) key here.
    Supabase dashboard → Project Settings → API.                    */
+
 const SUPABASE_URL = "https://ryftqrljtiotiobvaqzt.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_0nKuaRj1jWXVu-3DsSlaJQ_dMO0Ep10";
 /* ============================================================== */
@@ -300,7 +303,7 @@ function applyDocs(docs){
   if (s) settings = { ...settings, ...s };
   entries = docs.filter(d => d.kind === "trade" || d.kind === "slip");
   const first = !ready; ready = true; render();
-  if (first || Date.now() - lastCheck > 5 * 60 * 1000) setTimeout(() => checkResults(false), 800);
+  if (first) setTimeout(() => checkResults(false), 800);
 }
 function upsertMem(doc){ const i = entries.findIndex(x => x.id === doc.id); if (i >= 0) entries[i] = doc; else entries.push(doc); }
 
@@ -396,8 +399,8 @@ function legOdds(l){ return l.res === "void" ? 1 : (n(l.odds) || 1); }
 function slipOdds(s){ return (s.legs || []).reduce((a, l) => a * legOdds(l), 1); }
 function slipStatus(s){
   const legs = s.legs || [];
+  if (legs.some(l => !l.res || l.res === "pending")) return "pending"; // wait until every match is over
   if (legs.some(l => l.res === "lost")) return "lost";
-  if (legs.some(l => !l.res || l.res === "pending")) return "pending";
   if (legs.length && legs.every(l => l.res === "void")) return "void";
   return "won";
 }
@@ -563,6 +566,17 @@ function tradesView(){
   </tbody></table></div>`;
 }
 
+function legStatus(l){
+  const fmt = ms => new Date(ms).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const st = (l.live && l.live.st) || "";
+  if (l.res && l.res !== "pending" && l.score) return `<span class="score">FT ${esc(l.score)}${l.ht ? ` · HT ${esc(l.ht)}` : ""}</span>`;
+  if (/cancel|abandon/i.test(st)) return `<span class="score">${esc(st)}</span>`;
+  if (/ended/i.test(st) && l.score) return `<span class="score">FT ${esc(l.score)}${l.ht ? ` · HT ${esc(l.ht)}` : ""} · tap the result</span>`;
+  if (st && l.score) return `<span class="score live">LIVE ${esc(l.score)}${l.live.min ? ` · ${esc(l.live.min)}` : ""}</span>`;
+  if (l.start && Date.now() < l.start) return `<span class="score">Kick-off ${esc(fmt(l.start))}</span>`;
+  if (l.eid) return `<span class="score">Waiting for score</span>`;
+  return "";
+}
 const openBets = new Set();
 document.addEventListener("toggle", e => { const d = e.target; if (d.matches && d.matches("details.bet")) d.open ? openBets.add(d.dataset.id) : openBets.delete(d.dataset.id); }, true);
 function slipsView(){
@@ -579,17 +593,19 @@ function slipsView(){
     <button class="btn small" data-act="check" ${checking?"disabled":""}>${checking ? "Checking results…" : "Check results"}${waiting && !checking ? ` (${waiting})` : ""}</button>
   </div>
   <div class="betlist">${S.map(s => { const st = slipStatus(s), legs = s.legs||[], ret = st==="pending" ? null : slipReturn(s), prof = ret==null?null:ret-(n(s.stake)||0);
-    const done = legs.filter(l => l.res && l.res !== "pending").length;
+    const done = legs.filter(l => l.res && l.res !== "pending").length, lostSoFar = legs.filter(l => l.res === "lost").length;
+    const started = legs.some(l => l.start && Date.now() >= l.start) || legs.some(l => l.live);
+    const label = st === "pending" ? (started ? "running" : "pending") : st;
     const title = legs.length===1 ? (legs[0].pick || "Single") + (legs[0].ev ? " · " + legs[0].ev.split(" · ")[0] : "") : legs.length + "-fold accumulator";
     return `<details class="bet" data-id="${s.id}" ${openBets.has(s.id)?"open":""}>
       <summary>
-        <span class="pill ${sp[st]}">${st}</span>
-        <span class="title"><b>${esc(title)}${s.example?' <span class="pill p-ex">Ex</span>':""}</b><span class="num">${esc(s.date)} · ${esc(s.book||"Bookmaker")}${s.code ? " · " + esc(s.code) : ""}${st==="pending" && legs.length>1 ? ` · ${done}/${legs.length} settled` : ""}</span></span>
+        <span class="pill ${sp[st]}">${label}</span>
+        <span class="title"><b>${esc(title)}${s.example?' <span class="pill p-ex">Ex</span>':""}</b><span class="num">${esc(s.date)} · ${esc(s.book||"Bookmaker")}${s.code ? " · " + esc(s.code) : ""}${st==="pending" && legs.length>1 ? ` · ${done}/${legs.length} settled` : ""}${st==="pending" && lostSoFar ? ` · ${lostSoFar} lost` : ""}</span></span>
         <span class="amt"><span class="${prof==null?"":cls(prof)}">${prof==null?money(slipPotential(s),bc):signed(prof,bc)}</span><small>${prof==null?"to return":"stake " + money(n(s.stake)||0,bc)}</small></span>
         <span class="chev" aria-hidden="true"></span>
       </summary>
       <div class="body">
-      <ul class="legs">${legs.map((l,i) => `<li class="leg"><div class="ev"><b>${esc(l.pick||"—")}</b><span>${esc([l.sport,l.ev,l.mkt].filter(Boolean).join(" · "))}</span>${l.score?`<span class="score">FT ${esc(l.score)}${l.ht?` · HT ${esc(l.ht)}`:""}</span>`:""}</div>
+      <ul class="legs">${legs.map((l,i) => `<li class="leg"><div class="ev"><b>${esc(l.pick||"—")}</b><span>${esc([l.sport,l.ev,l.mkt].filter(Boolean).join(" · "))}</span>${legStatus(l)}</div>
         <span class="num">${n(l.odds)?n(l.odds).toFixed(2):"–"}</span>
         <button type="button" class="pill ${sp[l.res==="won"?"won":l.res==="lost"?"lost":l.res==="void"?"void":"pending"]}" data-cycle="${s.id}" data-leg="${i}" title="${l.auto?"Settled automatically. Tap to change":"Tap to change result"}">${l.res||"pending"}${l.auto?" ✓":""}</button></li>`).join("")}</ul>
       <div class="perf"></div>
@@ -598,10 +614,10 @@ function slipsView(){
         <div><div class="l">Odds</div><div class="v">${slipOdds(s).toFixed(2)}</div></div>
         <div><div class="l">${st==="pending"?"To return":"Profit"}</div><div class="v ${prof==null?"":cls(prof)}">${prof==null?money(slipPotential(s),bc):signed(prof,bc)}</div></div>
       </div>
-      <div class="foot"><span class="note">${esc((s.notes||"").slice(0,60))}${(s.notes||"").length>60?"…":""}</span><button class="btn small" data-edit="${s.id}">Edit</button></div>
+      <div class="foot"><span class="note">${esc((s.notes||"").slice(0,60))}${(s.notes||"").length>60?"…":""}</span><span class="actions" data-delwrap="${s.id}"><button class="btn small danger" data-askdel="${s.id}">Delete</button><button class="btn small" data-edit="${s.id}">Edit</button></span></div>
       </div>
     </details>`; }).join("") || `<p class="note">No bets match these filters.</p>`}</div>
-  <p class="note" style="margin-top:12px">Bets loaded from a SportyBet code settle by themselves after full time, using the final score. A ✓ marks a result filled in automatically. Bets you typed in by hand, and unusual markets, still need a tap on the result.</p>`;
+  <p class="note" style="margin-top:12px">Bets loaded from a SportyBet code show live scores and settle by themselves at full time. A ticket is marked won or lost only when every match on it is over. A ✓ marks a result filled in automatically. Bets typed in by hand, and unusual markets, still need a tap on the result.</p>`;
 }
 
 /* ---------- trade dialog ---------- */
@@ -793,11 +809,12 @@ function legsToCheck(){
   const now = Date.now(), list = [];
   slips().forEach(s => (s.legs || []).forEach((l, i) => {
     if (!l.eid || l.manual || (l.res && l.res !== "pending")) return;
-    if (l.start && now < l.start + 100 * 60 * 1000) return; // match can't be over yet
+    if (l.start && now < l.start - 60 * 1000) return; // not kicked off yet
     list.push({ s, i, l });
   }));
   return list;
 }
+const isLive = l => l.live && !/ended|cancel|abandon/i.test(l.live.st || "") && l.start && Date.now() - l.start < 4 * 3600 * 1000;
 async function checkResults(manual){
   if (checking || (mode === "cloud" && !session)) return;
   const todo = legsToCheck();
@@ -812,24 +829,37 @@ async function checkResults(manual){
       const j = await r.json(); if (j.error) throw new Error(j.error);
       Object.assign(results, j.events || {});
     }
-    const changed = new Map(); let settled = 0, unknown = 0;
+    const changed = new Map(); let settled = 0, unknown = 0, missing = 0;
     todo.forEach(({ s, i, l }) => {
-      const ev = results[l.eid]; if (!ev) return;
-      const r = settleLeg(l, ev); if (!r) return;
+      const ev = results[l.eid];
+      if (!ev) { missing++; return; }
       const copy = changed.get(s.id) || { ...s, legs: s.legs.map(x => ({ ...x })) };
-      const leg = copy.legs[i];
-      if (r.score) leg.score = r.score.join("-");
-      if (r.ht) leg.ht = r.ht.join("-");
-      if (r.res) { leg.res = r.res; leg.auto = true; settled++; } else if (r.unknown) unknown++;
-      changed.set(s.id, copy);
+      const leg = copy.legs[i], before = JSON.stringify(leg);
+      const ft = parseScore(ev.setScore), ht = parseScore((ev.gameScore || [])[0]);
+      leg.live = { st: ev.matchStatus || "", min: ev.playedSeconds || "", at: Date.now() };
+      if (ft) leg.score = ft.join("-");
+      if (ht && (ev.gameScore || []).length > 1) leg.ht = ht.join("-");
+      const r = settleLeg(l, ev);
+      if (r && r.res) { leg.res = r.res; leg.auto = true; settled++; }
+      else if (r && r.unknown) { leg.needsTap = true; unknown++; }
+      // only save when something visible changed (not just the check time)
+      const after = JSON.stringify({ ...leg, live: { ...leg.live, at: 0 } }), prev = JSON.parse(before);
+      if (after !== JSON.stringify({ ...prev, live: prev.live ? { ...prev.live, at: 0 } : prev.live })) changed.set(s.id, copy);
     });
     for (const doc of changed.values()) await put(doc);
-    if (manual || settled) toast(settled ? `Settled ${settled} selection${settled > 1 ? "s" : ""} from final scores` + (unknown ? `. ${unknown} need you to tap a result.` : "") : unknown ? `${unknown} finished selection${unknown > 1 ? "s" : ""} need you to tap a result` : "No finished matches yet");
+    if (manual) toast(settled ? `Settled ${settled} selection${settled > 1 ? "s" : ""}` : unknown ? `${unknown} finished selection${unknown > 1 ? "s" : ""} need a tap` : missing === todo.length ? "SportyBet didn't return results yet. Try again shortly." : "Scores updated. No matches finished yet.");
+    else if (settled) toast(`Settled ${settled} selection${settled > 1 ? "s" : ""} from final scores`);
   } catch (e) { if (manual) toast(e.message || "Couldn't check results"); }
   finally { checking = false; render(); }
 }
-setInterval(() => { if (document.visibilityState === "visible") checkResults(false); }, 10 * 60 * 1000);
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && Date.now() - lastCheck > 5 * 60 * 1000) checkResults(false); });
+// every 2 minutes while a match is live, every 10 minutes otherwise
+setInterval(() => {
+  if (document.visibilityState !== "visible" || checking) return;
+  const live = slips().some(s => (s.legs || []).some(isLive));
+  const gap = live ? 2 * 60 * 1000 : 10 * 60 * 1000;
+  if (Date.now() - lastCheck >= gap) checkResults(false);
+}, 30 * 1000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && Date.now() - lastCheck > 60 * 1000) checkResults(false); });
 
 function slipCalc(){
   const s = readSlip(), bc = settings.betCcy, st = slipStatus(s);
@@ -874,9 +904,17 @@ function examples(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
+  const dz = e.target.closest("[data-askdel],[data-yesdel],[data-nodel]");
+  if (dz && !dz.closest("dialog")) {
+    const id = dz.dataset.askdel || dz.dataset.yesdel || dz.dataset.nodel, w = document.querySelector(`[data-delwrap="${id}"]`);
+    if (dz.dataset.askdel) w.innerHTML = `<span class="note">Delete this ticket?</span><button class="btn small danger" data-yesdel="${id}">Yes, delete</button><button class="btn small" data-nodel="${id}">Keep</button>`;
+    else if (dz.dataset.nodel) render();
+    else { openBets.delete(id); del(id); toast("Ticket deleted"); }
+    return;
+  }
   const t = e.target.closest("[data-tab],[data-act],[data-edit],[data-cycle]"); if (!t) return;
   if (t.dataset.tab) { tab = t.dataset.tab; render(); return; }
-  if (t.dataset.cycle) { const s = entries.find(x => x.id === t.dataset.cycle); if (!s) return; const order = ["pending","won","lost","void"]; const legs = s.legs.map(l => ({...l})); const l = legs[+t.dataset.leg]; l.res = order[(order.indexOf(l.res||"pending")+1) % 4]; l.manual = true; l.auto = false; put({ ...s, legs }); return; }
+  if (t.dataset.cycle) { const s = entries.find(x => x.id === t.dataset.cycle); if (!s) return; const order = ["pending","won","lost","void"]; const legs = s.legs.map(l => ({...l})); const l = legs[+t.dataset.leg]; l.res = order[(order.indexOf(l.res||"pending")+1) % 4]; l.manual = true; l.auto = false; l.needsTap = false; put({ ...s, legs }); return; }
   if (t.dataset.edit) { const it = entries.find(x => x.id === t.dataset.edit); if (it) it.kind === "trade" ? openTrade(it) : openSlip(it); return; }
   const a = t.dataset.act;
   if (a === "new-trade") openTrade(); else if (a === "new-slip") openSlip();
